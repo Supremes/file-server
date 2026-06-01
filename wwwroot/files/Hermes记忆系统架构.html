@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hermes Agent 记忆系统架构</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --border: #2a2a3a;
+    --text: #e8e8f0;
+    --text2: #9898b0;
+    --accent: #7c5cfc;
+    --accent2: #5c9cfc;
+    --accent3: #fc5c8c;
+    --green: #4cfc9c;
+    --orange: #fcbc4c;
+    --radius: 12px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, 'SF Pro Display', 'Inter', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ── Hero ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    position: relative;
+    padding: 2rem;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 600px 400px at 30% 20%, rgba(124,92,252,.12), transparent),
+      radial-gradient(ellipse 500px 350px at 70% 70%, rgba(92,156,252,.08), transparent);
+    pointer-events: none;
+  }
+  .hero h1 {
+    font-size: clamp(2.5rem, 6vw, 4.5rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--accent), var(--accent2), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 1rem;
+  }
+  .hero p {
+    font-size: 1.2rem;
+    color: var(--text2);
+    max-width: 600px;
+  }
+  .scroll-hint {
+    position: absolute;
+    bottom: 2rem;
+    animation: bounce 2s infinite;
+    color: var(--text2);
+    font-size: 1.5rem;
+  }
+  @keyframes bounce {
+    0%,100% { transform: translateY(0); }
+    50% { transform: translateY(10px); }
+  }
+
+  /* ── Sections ── */
+  .section {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 6rem 2rem;
+  }
+  .section-title {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+  .section-subtitle {
+    color: var(--text2);
+    font-size: 1.05rem;
+    margin-bottom: 3rem;
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 1rem;
+  }
+  .badge-purple { background: rgba(124,92,252,.15); color: var(--accent); }
+  .badge-blue   { background: rgba(92,156,252,.15); color: var(--accent2); }
+  .badge-pink   { background: rgba(252,92,140,.15); color: var(--accent3); }
+  .badge-green  { background: rgba(76,252,156,.15); color: var(--green); }
+  .badge-orange { background: rgba(252,188,76,.15); color: var(--orange); }
+
+  /* ── Architecture Diagram ── */
+  .arch-diagram {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2.5rem;
+    margin: 2rem 0;
+    overflow: hidden;
+  }
+  .arch-diagram::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2), var(--green));
+  }
+
+  /* ── Layer Cards ── */
+  .layers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin: 2rem 0;
+  }
+  .layer-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    transition: all 0.3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .layer-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 40px rgba(124,92,252,.12);
+  }
+  .layer-card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 4px; height: 100%;
+  }
+  .layer-card.l1::after { background: var(--accent); }
+  .layer-card.l2::after { background: var(--accent2); }
+  .layer-card.l3::after { background: var(--green); }
+  .layer-card.l4::after { background: var(--accent3); }
+  .layer-card.l5::after { background: var(--orange); }
+
+  .layer-icon {
+    width: 48px; height: 48px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .l1 .layer-icon { background: rgba(124,92,252,.15); }
+  .l2 .layer-icon { background: rgba(92,156,252,.15); }
+  .l3 .layer-icon { background: rgba(76,252,156,.15); }
+  .l4 .layer-icon { background: rgba(252,92,140,.15); }
+  .l5 .layer-icon { background: rgba(252,188,76,.15); }
+
+  .layer-card h3 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+  }
+  .layer-card p {
+    color: var(--text2);
+    font-size: 0.92rem;
+  }
+  .layer-meta {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+  }
+  .layer-meta span {
+    font-size: 0.78rem;
+    padding: 0.2rem 0.6rem;
+    background: var(--surface2);
+    border-radius: 6px;
+    color: var(--text2);
+  }
+
+  /* ── Flow Diagram ── */
+  .flow-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    flex-wrap: wrap;
+    padding: 2rem 0;
+  }
+  .flow-node {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.2rem 1.5rem;
+    text-align: center;
+    min-width: 160px;
+    position: relative;
+  }
+  .flow-node h4 { font-size: 0.95rem; margin-bottom: 0.3rem; }
+  .flow-node p { font-size: 0.78rem; color: var(--text2); }
+  .flow-arrow {
+    color: var(--text2);
+    font-size: 1.5rem;
+    padding: 0 0.5rem;
+    flex-shrink: 0;
+  }
+
+  /* ── Code Block ── */
+  .code-block {
+    background: #0d0d14;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+    position: relative;
+  }
+  .code-block .comment { color: #6a6a80; }
+  .code-block .keyword { color: var(--accent); }
+  .code-block .string  { color: var(--green); }
+  .code-block .func    { color: var(--accent2); }
+  .code-block .type    { color: var(--orange); }
+  .code-block .header  {
+    display: inline-block;
+    background: rgba(124,92,252,.1);
+    color: var(--accent);
+    padding: 0 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+  }
+  .code-block .pct {
+    color: var(--orange);
+    font-weight: 600;
+  }
+
+  /* ── Table ── */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 2rem 0;
+    font-size: 0.92rem;
+  }
+  .compare-table th {
+    text-align: left;
+    padding: 1rem;
+    background: var(--surface);
+    border-bottom: 2px solid var(--accent);
+    font-weight: 600;
+    color: var(--text);
+  }
+  .compare-table td {
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text2);
+  }
+  .compare-table tr:hover td {
+    background: var(--surface);
+  }
+  .compare-table td:first-child {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* ── Lifecycle ── */
+  .lifecycle {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+  .lc-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    position: relative;
+  }
+  .lc-step .num {
+    position: absolute;
+    top: -12px;
+    left: 1.5rem;
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: #fff;
+  }
+  .lc-step h4 { font-size: 0.95rem; margin-bottom: 0.4rem; }
+  .lc-step p  { font-size: 0.85rem; color: var(--text2); }
+
+  /* ── SVG Diagram ── */
+  .diagram-wrapper {
+    display: flex;
+    justify-content: center;
+    padding: 2rem 0;
+  }
+  .diagram-wrapper svg {
+    max-width: 100%;
+    height: auto;
+  }
+
+  /* ── Tooltip ── */
+  .tip {
+    display: inline-block;
+    border-bottom: 1px dashed var(--accent);
+    cursor: help;
+    position: relative;
+  }
+  .tip:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: 120%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 0.5rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    color: var(--text);
+    white-space: nowrap;
+    z-index: 10;
+  }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.5rem;
+  }
+  .tab-btn {
+    padding: 0.75rem 1.5rem;
+    background: none;
+    border: none;
+    color: var(--text2);
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    transition: all 0.2s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── File Tree ── */
+  .file-tree {
+    background: #0d0d14;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    font-family: 'JetBrains Mono', 'SF Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 2;
+    margin: 1.5rem 0;
+  }
+  .file-tree .dir  { color: var(--accent2); }
+  .file-tree .file { color: var(--text2); }
+  .file-tree .highlight { color: var(--green); font-weight: 600; }
+
+  /* ── Divider ── */
+  .divider {
+    max-width: 1100px;
+    margin: 0 auto;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--text2);
+    font-size: 0.85rem;
+  }
+
+  /* ── Animations ── */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .fade-in.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (max-width: 768px) {
+    .layers { grid-template-columns: 1fr; }
+    .flow-container { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+    .lifecycle { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════════ Hero ════════════ -->
+<div class="hero">
+  <h1>Hermes Agent<br>记忆系统架构</h1>
+  <p>五层记忆体系：从即时工作记忆到持久化知识库，让 AI 拥有跨会话的长期记忆</p>
+  <div class="scroll-hint">↓</div>
+</div>
+
+<!-- ════════════ Overview ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-purple">Architecture Overview</span>
+  <h2 class="section-title">五层记忆体系总览</h2>
+  <p class="section-subtitle">每一层解决不同的记忆问题，从即时上下文到永久知识积累</p>
+
+  <!-- SVG Architecture Diagram -->
+  <div class="diagram-wrapper">
+    <svg width="900" height="520" viewBox="0 0 900 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- Background Grid -->
+      <defs>
+        <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+          <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1a1a26" stroke-width="0.5"/>
+        </pattern>
+        <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#7c5cfc" stop-opacity="0.8"/>
+          <stop offset="100%" stop-color="#5c9cfc" stop-opacity="0.8"/>
+        </linearGradient>
+        <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#5c9cfc" stop-opacity="0.8"/>
+          <stop offset="100%" stop-color="#4cfc9c" stop-opacity="0.8"/>
+        </linearGradient>
+        <linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#4cfc9c" stop-opacity="0.8"/>
+          <stop offset="100%" stop-color="#fcbc4c" stop-opacity="0.8"/>
+        </linearGradient>
+        <filter id="glow">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <rect width="900" height="520" fill="var(--bg)"/>
+      <rect width="900" height="520" fill="url(#grid)"/>
+
+      <!-- Layer 1: Working Memory -->
+      <rect x="50" y="30" width="800" height="80" rx="12" fill="#12121a" stroke="#7c5cfc" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="50" y="30" width="4" height="80" rx="2" fill="#7c5cfc"/>
+      <text x="80" y="62" fill="#7c5cfc" font-size="13" font-weight="700">L1  工作记忆 Working Memory</text>
+      <text x="80" y="85" fill="#9898b0" font-size="11">系统提示词注入 · 会话级 · 即时可用 · ~3000 tokens</text>
+      <text x="580" y="62" fill="#e8e8f0" font-size="11" font-family="monospace">system_prompt = persona + memory_snapshot + tools</text>
+      <text x="580" y="85" fill="#9898b0" font-size="10">每次会话开始时从 L2/L3 加载，冻结不变</text>
+
+      <!-- Layer 2: Persistent Memory -->
+      <rect x="50" y="130" width="385" height="80" rx="12" fill="#12121a" stroke="#5c9cfc" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="50" y="130" width="4" height="80" rx="2" fill="#5c9cfc"/>
+      <text x="80" y="162" fill="#5c9cfc" font-size="13" font-weight="700">L2  持久记忆 Persistent Memory</text>
+      <text x="80" y="185" fill="#9898b0" font-size="11">MEMORY.md + USER.md · 跨会话 · 有限容量</text>
+      <text x="80" y="200" fill="#9898b0" font-size="10">memory.md: 2200 chars │ user.md: 1375 chars</text>
+
+      <!-- Layer 2b: Memory Providers -->
+      <rect x="465" y="130" width="385" height="80" rx="12" fill="#12121a" stroke="#5c9cfc" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="465" y="130" width="4" height="80" rx="2" fill="#5c9cfc"/>
+      <text x="495" y="162" fill="#5c9cfc" font-size="13" font-weight="700">L2+ 外部记忆 External Providers</text>
+      <text x="495" y="185" fill="#9898b0" font-size="11">Mem0 · Honcho · Supermemory · 其他</text>
+      <text x="495" y="200" fill="#9898b0" font-size="10">知识图谱 · 语义搜索 · 自动提取</text>
+
+      <!-- Layer 3: Session Store -->
+      <rect x="50" y="230" width="800" height="80" rx="12" fill="#12121a" stroke="#4cfc9c" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="50" y="230" width="4" height="80" rx="2" fill="#4cfc9c"/>
+      <text x="80" y="262" fill="#4cfc9c" font-size="13" font-weight="700">L3  会话存储 Session Store</text>
+      <text x="80" y="285" fill="#9898b0" font-size="11">SQLite + FTS5 · 所有历史对话 · 全文搜索</text>
+      <text x="580" y="262" fill="#e8e8f0" font-size="11" font-family="monospace">session_search(query, session_id, around_message_id)</text>
+      <text x="580" y="285" fill="#9898b0" font-size="10">三种模式：Discovery · Scroll · Browse</text>
+
+      <!-- Layer 4: Skills -->
+      <rect x="50" y="330" width="385" height="80" rx="12" fill="#12121a" stroke="#fc5c8c" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="50" y="330" width="4" height="80" rx="2" fill="#fc5c8c"/>
+      <text x="80" y="362" fill="#fc5c8c" font-size="13" font-weight="700">L4  技能库 Skills</text>
+      <text x="80" y="385" fill="#9898b0" font-size="11">SKILL.md 文件 · 可复用流程 · 模板/脚本/引用</text>
+      <text x="80" y="400" fill="#9898b0" font-size="10">~/.hermes/skills/ · 按需加载 · 社区共享</text>
+
+      <!-- Layer 5: Context Files -->
+      <rect x="465" y="330" width="385" height="80" rx="12" fill="#12121a" stroke="#fcbc4c" stroke-width="1.5" stroke-opacity="0.4"/>
+      <rect x="465" y="330" width="4" height="80" rx="2" fill="#fcbc4c"/>
+      <text x="495" y="362" fill="#fcbc4c" font-size="13" font-weight="700">L5  上下文文件 Context Files</text>
+      <text x="495" y="385" fill="#9898b0" font-size="11">AGENTS.md · .cursorrules · README</text>
+      <text x="495" y="400" fill="#9898b0" font-size="10">项目级知识 · 自动发现 · 只读注入</text>
+
+      <!-- Arrows -->
+      <path d="M250 110 L250 130" stroke="url(#g1)" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <path d="M650 110 L650 130" stroke="url(#g1)" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <path d="M442 170 L465 170" stroke="#5c9cfc" stroke-width="1.5" stroke-dasharray="4"/>
+      <path d="M250 210 L250 230" stroke="url(#g2)" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <path d="M650 210 L650 230" stroke="url(#g2)" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <path d="M250 310 L250 330" stroke="url(#g3)" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <path d="M650 310 L650 330" stroke="url(#g3)" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#9898b0"/>
+        </marker>
+      </defs>
+
+      <!-- Bottom: User / Agent -->
+      <rect x="200" y="450" width="200" height="50" rx="10" fill="#1a1a26" stroke="#2a2a3a" stroke-width="1"/>
+      <text x="300" y="480" fill="#e8e8f0" font-size="13" text-anchor="middle" font-weight="600">👤 用户 (Feishu / CLI / Web)</text>
+
+      <rect x="500" y="450" width="200" height="50" rx="10" fill="#1a1a26" stroke="#2a2a3a" stroke-width="1"/>
+      <text x="600" y="480" fill="#e8e8f0" font-size="13" text-anchor="middle" font-weight="600">🤖 Agent Loop</text>
+
+      <path d="M400 475 L500 475" stroke="#4cfc9c" stroke-width="2" marker-end="url(#arrowhead)"/>
+      <path d="M500 472 L400 472" stroke="#fc5c8c" stroke-width="2" marker-end="url(#arrowhead2)"/>
+      <defs>
+        <marker id="arrowhead2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#fc5c8c"/>
+        </marker>
+      </defs>
+      <text x="450" y="467" fill="#9898b0" font-size="9" text-anchor="middle">消息</text>
+      <text x="450" y="490" fill="#9898b0" font-size="9" text-anchor="middle">响应</text>
+    </svg>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ L1: Working Memory ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-purple">Layer 1</span>
+  <h2 class="section-title">🧠 工作记忆 — 即时上下文</h2>
+  <p class="section-subtitle">每次会话开始时注入系统提示词，整个会话期间保持冻结（保证 LLM 缓存命中）</p>
+
+  <div class="code-block">
+    <span class="header">system prompt 注入示例</span><br><br>
+    <span class="comment">══════════════════════════════════════════════</span><br>
+    <span class="keyword">MEMORY</span> (your personal notes) <span class="pct">[67% — 1,474/2,200 chars]</span><br>
+    <span class="comment">══════════════════════════════════════════════</span><br>
+    <span class="string">VPS: 185.239.224.219 (SSH alias `vps`, port 12761)</span><br>
+    <span class="string">§</span><br>
+    <span class="string">LeetCode Tracker: Flask + SQLite on VPS, port 8081</span><br>
+    <span class="string">§</span><br>
+    <span class="string">Market Dashboard: Flask on VPS, port 8082</span><br><br>
+    <span class="comment">══════════════════════════════════════════════</span><br>
+    <span class="keyword">USER PROFILE</span> (who the user is) <span class="pct">[43% — 593/1,375 chars]</span><br>
+    <span class="comment">══════════════════════════════════════════════</span><br>
+    <span class="string">Communication style: terse, direct. Responds in Chinese.</span><br>
+    <span class="string">§</span><br>
+    <span class="string">Prefers concise replies — just confirm what was fixed</span>
+  </div>
+
+  <div class="lifecycle">
+    <div class="lc-step">
+      <div class="num">1</div>
+      <h4>会话启动</h4>
+      <p>从 ~/.hermes/memories/ 加载 memory.md 和 user.md</p>
+    </div>
+    <div class="lc-step">
+      <div class="num">2</div>
+      <h4>注入系统提示词</h4>
+      <p>渲染为 § 分隔的文本块，附带容量百分比</p>
+    </div>
+    <div class="lc-step">
+      <div class="num">3</div>
+      <h4>冻结不变</h4>
+      <p>整个会话期间不更新注入内容，保证 prefix cache</p>
+    </div>
+    <div class="lc-step">
+      <div class="num">4</div>
+      <h4>磁盘即时持久化</h4>
+      <p>memory tool 的修改立即写入文件，下次会话生效</p>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ L2: Persistent Memory ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-blue">Layer 2</span>
+  <h2 class="section-title">💾 持久记忆 — 跨会话记忆</h2>
+  <p class="section-subtitle">两个文件，严格容量限制，Agent 自主管理（增/删/改）</p>
+
+  <div class="layers">
+    <div class="layer-card l2">
+      <div class="layer-icon">📝</div>
+      <h3>MEMORY.md — Agent 笔记</h3>
+      <p>环境事实、项目约定、工具经验、踩坑记录。Agent 自己的"笔记本"。</p>
+      <div class="layer-meta">
+        <span>📁 ~/.hermes/memories/memory.md</span>
+        <span>📏 2,200 chars (~800 tokens)</span>
+        <span>📊 8-15 条目</span>
+      </div>
+    </div>
+    <div class="layer-card l2">
+      <div class="layer-icon">👤</div>
+      <h3>USER.md — 用户画像</h3>
+      <p>用户偏好、沟通风格、技术栈、工作习惯。让 Agent "认识你"。</p>
+      <div class="layer-meta">
+        <span>📁 ~/.hermes/memories/user.md</span>
+        <span>📏 1,375 chars (~500 tokens)</span>
+        <span>📊 5-10 条目</span>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin: 2rem 0 1rem; font-size: 1.1rem;">memory tool 三种操作</h3>
+  <div class="code-block">
+    <span class="comment"># 添加记忆</span><br>
+    <span class="func">memory</span>(<span class="keyword">action</span>=<span class="string">"add"</span>, <span class="keyword">target</span>=<span class="string">"memory"</span>, <span class="keyword">content</span>=<span class="string">"项目使用 pytest + xdist"</span>)<br><br>
+    <span class="comment"># 替换记忆（子串匹配定位）</span><br>
+    <span class="func">memory</span>(<span class="keyword">action</span>=<span class="string">"replace"</span>, <span class="keyword">target</span>=<span class="string">"user"</span>,<br>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">old_text</span>=<span class="string">"concise"</span>, <span class="keyword">content</span>=<span class="string">"用户偏好极简回复，不要解释"</span>)<br><br>
+    <span class="comment"># 删除记忆</span><br>
+    <span class="func">memory</span>(<span class="keyword">action</span>=<span class="string">"remove"</span>, <span class="keyword">target</span>=<span class="string">"memory"</span>, <span class="keyword">old_text</span>=<span class="string">"临时路径"</span>)
+  </div>
+
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-top: 1.5rem;">
+    <h4 style="color: var(--orange); margin-bottom: 0.5rem;">🔒 安全机制</h4>
+    <p style="color: var(--text2); font-size: 0.9rem;">
+      • <strong>注入扫描</strong>：所有记忆写入前经过 prompt injection 和 credential exfiltration 模式检测<br>
+      • <strong>Unicode 检查</strong>：拦截不可见字符注入<br>
+      • <strong>去重</strong>：自动拒绝完全重复的条目<br>
+      • <strong>容量硬限</strong>：超出时返回错误，Agent 需先整合/清理旧条目
+    </p>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ L3: Session Store ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-green">Layer 3</span>
+  <h2 class="section-title">🔍 会话存储 — 全历史检索</h2>
+  <p class="section-subtitle">SQLite + FTS5 全文搜索，所有对话永久保存，三种检索模式</p>
+
+  <div class="flow-container">
+    <div class="flow-node" style="border-color: var(--green);">
+      <h4 style="color: var(--green);">Discovery</h4>
+      <p>关键词搜索<br>找到相关会话</p>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node" style="border-color: var(--accent2);">
+      <h4 style="color: var(--accent2);">Scroll</h4>
+      <p>定位到具体消息<br>±N 窗口展开</p>
+    </div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node" style="border-color: var(--orange);">
+      <h4 style="color: var(--orange);">Browse</h4>
+      <p>最近会话列表<br>时间线浏览</p>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <span class="header">三种检索模式示例</span><br><br>
+    <span class="comment"># 1. Discovery — 关键词发现</span><br>
+    <span class="func">session_search</span>(<span class="keyword">query</span>=<span class="string">"leetcode tracker bug fix"</span>, <span class="keyword">limit</span>=3)<br>
+    <span class="comment"># → 返回匹配会话 + FTS5 高亮摘要 + 首尾消息 + 上下文窗口</span><br><br>
+    <span class="comment"># 2. Scroll — 定位特定消息</span><br>
+    <span class="func">session_search</span>(<span class="keyword">session_id</span>=<span class="string">"abc123"</span>, <span class="keyword">around_message_id</span>=<span class="type">456</span>, <span class="keyword">window</span>=10)<br>
+    <span class="comment"># → 返回 ±10 条消息的上下文</span><br><br>
+    <span class="comment"># 3. Browse — 最近会话</span><br>
+    <span class="func">session_search</span>()<br>
+    <span class="comment"># → 按时间倒序返回最近会话列表</span>
+  </div>
+
+  <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-top: 1.5rem;">
+    <h4 style="color: var(--green); margin-bottom: 0.5rem;">⚡ 性能特点</h4>
+    <p style="color: var(--text2); font-size: 0.9rem;">
+      • <strong>零 LLM 开销</strong>：纯 SQLite 查询，不消耗 token<br>
+      • <strong>FTS5 全文索引</strong>：支持 AND/OR/引号短语/布尔/前缀通配<br>
+      • <strong>精确引用</strong>：返回原始消息文本，不做摘要或截断<br>
+      • <strong>书签结构</strong>：返回会话首尾 3 条消息 + 匹配上下文 ±5 条
+    </p>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ L4 & L5 ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-pink">Layer 4 & 5</span>
+  <h2 class="section-title">📚 技能库 & 上下文文件</h2>
+  <p class="section-subtitle">结构化知识（Skills）+ 项目级上下文（Context Files）</p>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab(event, 'skills')">L4 技能库 Skills</button>
+    <button class="tab-btn" onclick="switchTab(event, 'context')">L5 上下文文件</button>
+  </div>
+
+  <div id="tab-skills" class="tab-panel active">
+    <div class="layers">
+      <div class="layer-card l4">
+        <div class="layer-icon">📖</div>
+        <h3>SKILL.md — 流程知识</h3>
+        <p>可复用的工作流、命令序列、陷阱提醒、验证步骤。Agent 的"操作手册"。</p>
+        <div class="layer-meta">
+          <span>触发条件 + 编号步骤 + 验证步骤</span>
+        </div>
+      </div>
+      <div class="layer-card l4">
+        <div class="layer-icon">📎</div>
+        <h3>附属文件</h3>
+        <p>references/ (参考文档) · templates/ (模板文件) · scripts/ (脚本) · assets/ (资源)</p>
+        <div class="layer-meta">
+          <span>Skill 目录下按需存放</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="file-tree">
+      <span class="dir">~/.hermes/skills/</span><br>
+      ├── <span class="dir">software-development/</span><br>
+      │&nbsp;&nbsp; ├── <span class="highlight">flask-vps-development/SKILL.md</span><br>
+      │&nbsp;&nbsp; ├── <span class="dir">references/</span><br>
+      │&nbsp;&nbsp; │&nbsp;&nbsp; └── <span class="file">vps-ssh-config.md</span><br>
+      │&nbsp;&nbsp; └── <span class="dir">scripts/</span><br>
+      │&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; └── <span class="file">deploy.sh</span><br>
+      ├── <span class="dir">creative/</span><br>
+      │&nbsp;&nbsp; └── <span class="highlight">claude-design/SKILL.md</span><br>
+      └── <span class="dir">devops/</span><br>
+      &nbsp;&nbsp;&nbsp; └── <span class="highlight">kanban-orchestrator/SKILL.md</span>
+    </div>
+
+    <div class="code-block">
+      <span class="header">Skill 加载流程</span><br><br>
+      <span class="comment"># 1. 用户发送消息</span><br>
+      <span class="comment"># 2. Agent 扫描 available_skills 列表</span><br>
+      <span class="comment"># 3. 匹配 → 调用 skill_view(name) 加载完整内容</span><br>
+      <span class="comment"># 4. 按 Skill 指令执行（命令、陷阱、验证）</span><br>
+      <span class="comment"># 5. 执行完毕 → 用 skill_manage 更新过时内容</span><br><br>
+      <span class="func">skill_view</span>(<span class="keyword">name</span>=<span class="string">"flask-vps-development"</span>)<br>
+      <span class="comment"># → 返回 SKILL.md 内容 + 可用附属文件列表</span><br><br>
+      <span class="func">skill_manage</span>(<span class="keyword">action</span>=<span class="string">"patch"</span>, <span class="keyword">name</span>=<span class="string">"flask-vps-development"</span>,<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="keyword">old_string</span>=<span class="string">"port 8080"</span>, <span class="keyword">new_string</span>=<span class="string">"port 8082"</span>)
+    </div>
+  </div>
+
+  <div id="tab-context" class="tab-panel">
+    <div class="layers">
+      <div class="layer-card l5">
+        <div class="layer-icon">📋</div>
+        <h3>AGENTS.md / CLAUDE.md</h3>
+        <p>项目级开发指南：代码结构、构建命令、测试方式、代码风格约定。</p>
+        <div class="layer-meta">
+          <span>项目根目录</span>
+          <span>只读注入</span>
+        </div>
+      </div>
+      <div class="layer-card l5">
+        <div class="layer-icon">⚙️</div>
+        <h3>.cursorrules / .hermes/</h3>
+        <p>工具特定配置、计划文件、Agent 行为约束。自动发现并注入。</p>
+        <div class="layer-meta">
+          <span>按工作目录发现</span>
+          <span>只读注入</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="code-block">
+      <span class="header">上下文文件注入</span><br><br>
+      <span class="comment"># 工具调用时自动注入（不需要显式加载）</span><br>
+      <span class="comment"># terminal(workdir="/root/my-project") 时：</span><br>
+      <span class="comment">#   → 自动发现 /root/my-project/AGENTS.md</span><br>
+      <span class="comment">#   → 注入系统提示词作为只读上下文</span><br><br>
+      <span class="comment"># cronjob 的 workdir 参数同理：</span><br>
+      <span class="func">cronjob</span>(<span class="keyword">action</span>=<span class="string">"create"</span>, <span class="keyword">workdir</span>=<span class="string">"/root/leetcode-tracker"</span>, ...)<br>
+      <span class="comment"># → 注入 leetcode-tracker/AGENTS.md 内容</span>
+    </div>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ Comparison Table ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-orange">Comparison</span>
+  <h2 class="section-title">五层记忆对比</h2>
+  <p class="section-subtitle">每一层解决不同粒度的记忆需求</p>
+
+  <table class="compare-table">
+    <thead>
+      <tr>
+        <th>层级</th>
+        <th>名称</th>
+        <th>容量</th>
+        <th>延迟</th>
+        <th>Token 成本</th>
+        <th>管理方式</th>
+        <th>典型用途</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="color: var(--accent);">L1</td>
+        <td>工作记忆</td>
+        <td>~3000 tokens</td>
+        <td>0 (预注入)</td>
+        <td>每轮固定</td>
+        <td>自动注入</td>
+        <td>始终在上下文中</td>
+      </tr>
+      <tr>
+        <td style="color: var(--accent2);">L2</td>
+        <td>持久记忆</td>
+        <td>3,575 chars</td>
+        <td>~0 (磁盘读)</td>
+        <td>~1,300 tokens/会话</td>
+        <td>Agent 自主</td>
+        <td>关键事实、用户偏好</td>
+      </tr>
+      <tr>
+        <td style="color: var(--accent2);">L2+</td>
+        <td>外部记忆</td>
+        <td>无限制</td>
+        <td>~50-200ms</td>
+        <td>按需</td>
+        <td>插件管理</td>
+        <td>知识图谱、语义搜索</td>
+      </tr>
+      <tr>
+        <td style="color: var(--green);">L3</td>
+        <td>会话存储</td>
+        <td>无限制</td>
+        <td>~20ms FTS5</td>
+        <td>零 (纯 DB)</td>
+        <td>自动存储</td>
+        <td>历史对话检索</td>
+      </tr>
+      <tr>
+        <td style="color: var(--accent3);">L4</td>
+        <td>技能库</td>
+        <td>无限制</td>
+        <td>~0 (文件读)</td>
+        <td>按需加载</td>
+        <td>Agent + 用户</td>
+        <td>可复用流程、操作手册</td>
+      </tr>
+      <tr>
+        <td style="color: var(--orange);">L5</td>
+        <td>上下文文件</td>
+        <td>项目级</td>
+        <td>~0 (自动发现)</td>
+        <td>注入即消耗</td>
+        <td>只读</td>
+        <td>项目规范、开发指南</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ Data Flow ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-purple">Data Flow</span>
+  <h2 class="section-title">完整数据流</h2>
+  <p class="section-subtitle">一次对话中记忆系统的完整工作流程</p>
+
+  <!-- SVG Flow Diagram -->
+  <div class="diagram-wrapper">
+    <svg width="860" height="600" viewBox="0 0 860 600" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="860" height="600" fill="var(--bg)"/>
+
+      <!-- Step boxes -->
+      <rect x="330" y="20" width="200" height="50" rx="10" fill="#1a1a26" stroke="#7c5cfc" stroke-width="1.5"/>
+      <text x="430" y="50" fill="#e8e8f0" font-size="13" text-anchor="middle" font-weight="600">用户发送消息</text>
+
+      <line x1="430" y1="70" x2="430" y2="100" stroke="#9898b0" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="280" y="100" width="300" height="60" rx="10" fill="#1a1a26" stroke="#7c5cfc" stroke-width="1.5"/>
+      <text x="430" y="125" fill="#7c5cfc" font-size="12" text-anchor="middle" font-weight="600">构建系统提示词</text>
+      <text x="430" y="145" fill="#9898b0" font-size="10" text-anchor="middle">加载 persona + L1 memory + L5 context</text>
+
+      <line x1="430" y1="160" x2="430" y2="190" stroke="#9898b0" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="280" y="190" width="300" height="60" rx="10" fill="#1a1a26" stroke="#4cfc9c" stroke-width="1.5"/>
+      <text x="430" y="215" fill="#4cfc9c" font-size="12" text-anchor="middle" font-weight="600">扫描 Skills</text>
+      <text x="430" y="235" fill="#9898b0" font-size="10" text-anchor="middle">匹配 available_skills → 加载相关 SKILL.md</text>
+
+      <line x1="430" y1="250" x2="430" y2="280" stroke="#9898b0" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="250" y="280" width="360" height="60" rx="10" fill="#1a1a26" stroke="#5c9cfc" stroke-width="1.5"/>
+      <text x="430" y="305" fill="#5c9cfc" font-size="12" text-anchor="middle" font-weight="600">LLM 推理 + 工具调用循环</text>
+      <text x="430" y="325" fill="#9898b0" font-size="10" text-anchor="middle">terminal / memory / session_search / skill_view / ...</text>
+
+      <!-- Side branches -->
+      <line x1="250" y1="310" x2="100" y2="310" stroke="#9898b0" stroke-width="1" stroke-dasharray="4"/>
+      <rect x="10" y="285" width="90" height="50" rx="8" fill="#1a1a26" stroke="#5c9cfc" stroke-width="1"/>
+      <text x="55" y="308" fill="#5c9cfc" font-size="9" text-anchor="middle">读写 MEMORY</text>
+      <text x="55" y="322" fill="#9898b0" font-size="8" text-anchor="middle">L2 持久化</text>
+
+      <line x1="610" y1="310" x2="760" y2="310" stroke="#9898b0" stroke-width="1" stroke-dasharray="4"/>
+      <rect x="760" y="285" width="90" height="50" rx="8" fill="#1a1a26" stroke="#4cfc9c" stroke-width="1"/>
+      <text x="805" y="308" fill="#4cfc9c" font-size="9" text-anchor="middle">搜索历史</text>
+      <text x="805" y="322" fill="#9898b0" font-size="8" text-anchor="middle">L3 会话</text>
+
+      <line x1="430" y1="340" x2="430" y2="370" stroke="#9898b0" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Decision diamond -->
+      <polygon points="430,370 510,410 430,450 350,410" fill="#1a1a26" stroke="#fcbc4c" stroke-width="1.5"/>
+      <text x="430" y="407" fill="#fcbc4c" font-size="11" text-anchor="middle" font-weight="600">需要工具？</text>
+
+      <!-- Yes branch -->
+      <line x1="510" y1="410" x2="650" y2="410" stroke="#9898b0" stroke-width="1" marker-end="url(#arr)"/>
+      <rect x="650" y="385" width="150" height="50" rx="8" fill="#1a1a26" stroke="#fc5c8c" stroke-width="1"/>
+      <text x="725" y="408" fill="#fc5c8c" font-size="10" text-anchor="middle">执行工具</text>
+      <text x="725" y="425" fill="#9898b0" font-size="9" text-anchor="middle">返回结果 → 回到推理</text>
+      <path d="M725 385 Q725 340 560 310" stroke="#9898b0" stroke-width="1" stroke-dasharray="4" fill="none" marker-end="url(#arr)"/>
+
+      <!-- No branch -->
+      <line x1="430" y1="450" x2="430" y2="490" stroke="#9898b0" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="300" y="490" width="260" height="50" rx="10" fill="#1a1a26" stroke="#4cfc9c" stroke-width="1.5"/>
+      <text x="430" y="515" fill="#4cfc9c" font-size="12" text-anchor="middle" font-weight="600">生成最终回复</text>
+      <text x="430" y="532" fill="#9898b0" font-size="10" text-anchor="middle">无工具调用 → 输出文本响应</text>
+
+      <line x1="430" y1="540" x2="430" y2="570" stroke="#9898b0" stroke-width="1.5" marker-end="url(#arr)"/>
+      <rect x="330" y="570" width="200" height="40" rx="10" fill="#1a1a26" stroke="#7c5cfc" stroke-width="1.5"/>
+      <text x="430" y="595" fill="#e8e8f0" font-size="13" text-anchor="middle" font-weight="600">会话存储 → L3</text>
+
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#9898b0"/>
+        </marker>
+      </defs>
+    </svg>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ External Providers ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-blue">External Providers</span>
+  <h2 class="section-title">🔌 外部记忆提供商</h2>
+  <p class="section-subtitle">8 个可选插件，与内置记忆并行运行（不替代）</p>
+
+  <div class="layers">
+    <div class="layer-card l2">
+      <div class="layer-icon">🧠</div>
+      <h3>Honcho</h3>
+      <p>会话记忆 + 用户建模，基于心理学理论的对话状态追踪</p>
+    </div>
+    <div class="layer-card l2">
+      <div class="layer-icon">🗂️</div>
+      <h3>Mem0</h3>
+      <p>自动事实提取，语义搜索，跨会话用户理解</p>
+    </div>
+    <div class="layer-card l2">
+      <div class="layer-icon">🌐</div>
+      <h3>Supermemory</h3>
+      <p>云端持久化，知识图谱，语义检索</p>
+    </div>
+    <div class="layer-card l2">
+      <div class="layer-icon">🔮</div>
+      <h3>Holographic</h3>
+      <p>全息记忆模型，多维度关联检索</p>
+    </div>
+  </div>
+
+  <div class="code-block">
+    <span class="header">配置外部记忆</span><br><br>
+    <span class="comment"># ~/.hermes/config.yaml</span><br>
+    <span class="keyword">memory</span>:<br>
+    &nbsp;&nbsp;<span class="keyword">memory_enabled</span>: <span class="type">true</span><br>
+    &nbsp;&nbsp;<span class="keyword">user_profile_enabled</span>: <span class="type">true</span><br>
+    &nbsp;&nbsp;<span class="keyword">memory_char_limit</span>: <span class="type">2200</span><br>
+    &nbsp;&nbsp;<span class="keyword">user_char_limit</span>: <span class="type">1375</span><br><br>
+    <span class="comment"># CLI 命令</span><br>
+    <span class="func">hermes</span> memory setup&nbsp;&nbsp;&nbsp;&nbsp;<span class="comment"># 选择并配置提供商</span><br>
+    <span class="func">hermes</span> memory status&nbsp;&nbsp;&nbsp;<span class="comment"># 检查当前状态</span>
+  </div>
+</div>
+
+<hr class="divider">
+
+<!-- ════════════ Design Philosophy ════════════ -->
+<div class="section fade-in">
+  <span class="badge badge-green">Philosophy</span>
+  <h2 class="section-title">🎯 设计哲学</h2>
+  <p class="section-subtitle">为什么这样设计记忆系统？</p>
+
+  <div class="layers">
+    <div class="layer-card l3">
+      <div class="layer-icon">💰</div>
+      <h3>Token 经济学</h3>
+      <p>L1 工作记忆每轮消耗 token，所以严格限制在 ~3000 tokens。L3 会话存储零 token 开销（纯 DB 查询），按需加载。L4 Skills 只在匹配时加载。</p>
+    </div>
+    <div class="layer-card l1">
+      <div class="layer-icon">🧊</div>
+      <h3>冻结快照模式</h3>
+      <p>L1 内容会话开始后不变，即使中途修改了 memory.md。这保证了 LLM 的 prefix cache 命中率，显著降低延迟和成本。</p>
+    </div>
+    <div class="layer-card l4">
+      <div class="layer-icon">🎯</div>
+      <h3>有限 vs 无限</h3>
+      <p>关键事实（L2）用有限容量强制精选。历史记录（L3）无限制但按需检索。结构化知识（L4）独立文件系统。各司其职。</p>
+    </div>
+    <div class="layer-card l2">
+      <div class="layer-icon">🔒</div>
+      <h3>安全边界</h3>
+      <p>记忆注入系统提示词，是 prompt injection 的高危入口。所有写入经过威胁模式扫描、Unicode 检查、去重验证。外部提供商作为独立层叠加。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════ Footer ════════════ -->
+<div class="footer">
+  <p>Hermes Agent Memory Architecture · Built with ❤️</p>
+  <p style="margin-top: 0.5rem; font-size: 0.78rem;">五层记忆体系 · 跨会话持久化 · 安全注入 · Token 经济</p>
+</div>
+
+<script>
+// Tab switching
+function switchTab(e, tabId) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  e.target.classList.add('active');
+  document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// Scroll animation
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, { threshold: 0.1 });
+
+document.querySelectorAll('.fade-in').forEach(el => {
+  observer.observe(el);
+  // Fallback: make visible after short delay (for headless/SSR)
+  setTimeout(() => el.classList.add('visible'), 100);
+});
+</script>
+</body>
+</html>
