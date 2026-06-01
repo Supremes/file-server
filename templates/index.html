@@ -1,0 +1,963 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Herme's File Server</title>
+<style>
+  :root {
+    --bg: #0f172a; --bg2: #1e293b; --bg3: #334155;
+    --text: #e2e8f0; --text2: #94a3b8;
+    --accent: #3b82f6; --accent2: #60a5fa;
+    --success: #22c55e; --danger: #ef4444;
+    --warn: #f59e0b;
+    --radius: 8px;
+    --shadow: 0 4px 6px -1px rgba(0,0,0,.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh;
+  }
+  .header {
+    background: var(--bg2); border-bottom: 1px solid var(--bg3);
+    padding: 12px 24px; display: flex; align-items: center;
+    justify-content: space-between; position: sticky; top: 0;
+    z-index: 100; backdrop-filter: blur(12px); gap: 12px;
+  }
+  .header h1 { font-size: 18px; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  .header h1 span { color: var(--accent); }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+  .header .user-name {
+    font-size: 13px; color: var(--text2); padding: 4px 8px;
+  }
+  .header .btn-logout {
+    font-size: 12px; background: transparent; border: 1px solid var(--bg3);
+    color: var(--text2); padding: 4px 10px; border-radius: var(--radius);
+    cursor: pointer; transition: all .15s;
+  }
+  .header .btn-logout:hover { border-color: var(--danger); color: var(--danger); }
+  .container { max-width: 1100px; margin: 0 auto; padding: 16px 24px; }
+  .breadcrumb {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+    font-size: 14px; margin-bottom: 12px; padding: 6px 12px;
+    background: var(--bg2); border-radius: var(--radius);
+  }
+  .breadcrumb a { color: var(--accent2); text-decoration: none; padding: 2px 6px; border-radius: 4px; }
+  .breadcrumb a:hover { background: var(--bg3); }
+  .breadcrumb .sep { color: var(--text2); }
+  .breadcrumb .current { color: var(--text); font-weight: 500; }
+  .toolbar { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+  .toolbar button, .toolbar .btn {
+    background: var(--bg2); border: 1px solid var(--bg3); color: var(--text);
+    padding: 7px 14px; border-radius: var(--radius); cursor: pointer;
+    font-size: 13px; display: flex; align-items: center; gap: 5px;
+    transition: all .15s; white-space: nowrap;
+  }
+  .toolbar button:hover { background: var(--bg3); border-color: var(--accent); }
+  .toolbar .btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .toolbar .btn-active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .toolbar .spacer { flex: 1; }
+  .search-box {
+    background: var(--bg2); border: 1px solid var(--bg3); border-radius: var(--radius);
+    padding: 6px 12px; color: var(--text); font-size: 13px; width: 180px;
+    outline: none; transition: all .15s;
+  }
+  .search-box:focus { border-color: var(--accent); width: 220px; }
+  .search-box::placeholder { color: var(--text2); }
+  .view-toggle { display: flex; gap: 0; }
+  .view-toggle button {
+    border: 1px solid var(--bg3); background: var(--bg2); color: var(--text2);
+    padding: 7px 10px; cursor: pointer; font-size: 13px; transition: all .15s;
+  }
+  .view-toggle button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+  .view-toggle button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+  .view-toggle button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .view-toggle button:not(.active):hover { background: var(--bg3); }
+
+  /* ── Grid / Card View ── */
+  .file-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 10px;
+  }
+  .file-grid .file-item {
+    background: var(--bg2); border: 1px solid var(--bg3); border-radius: var(--radius);
+    padding: 14px 10px; cursor: pointer; transition: all .15s; position: relative;
+    min-height: 100px; display: flex; flex-direction: column;
+    align-items: center; text-align: center;
+  }
+  .file-grid .file-item:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow); }
+  .file-grid .file-item .icon { font-size: 28px; margin-bottom: 6px; }
+  .file-grid .file-item .name { font-size: 12px; word-break: break-all; line-height: 1.3; flex: 1; }
+  .file-grid .file-item .meta { font-size: 11px; color: var(--text2); margin-top: 4px; }
+  .file-grid .file-item.dragging { opacity: .5; }
+  .file-grid .file-item.folder-hover { border-color: var(--success); background: rgba(34,197,94,.12); transform: translateY(-2px); box-shadow: 0 0 12px rgba(34,197,94,.3); }
+
+  /* ── List View ── */
+  .file-list { display: flex; flex-direction: column; gap: 2px; }
+  .file-list .file-item {
+    background: var(--bg2); border: 1px solid var(--bg3); border-radius: var(--radius);
+    padding: 8px 14px; cursor: pointer; transition: all .1s; position: relative;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .file-list .file-item:hover { border-color: var(--accent); background: #1e2d4a; }
+  .file-list .file-item .icon { font-size: 22px; flex-shrink: 0; }
+  .file-list .file-item .name { font-size: 13px; flex: 1; word-break: break-all; }
+  .file-list .file-item .meta { font-size: 12px; color: var(--text2); flex-shrink: 0; min-width: 70px; text-align: right; }
+  .file-list .actions-row { display: flex; gap: 3px; flex-shrink: 0; }
+  .file-list .file-item.dragging { opacity: .5; }
+  .file-list .file-item.folder-hover { border-color: var(--success); background: rgba(34,197,94,.12); }
+
+  /* ── Action Buttons ── */
+  .file-grid .actions-overlay {
+    position: absolute; top: 3px; right: 3px; display: none; gap: 2px;
+  }
+  .file-grid .file-item:hover .actions-overlay { display: flex; }
+  .actions-overlay button, .actions-row button {
+    background: rgba(0,0,0,.6); border: none; color: #fff;
+    padding: 3px 7px; border-radius: 4px; cursor: pointer;
+    font-size: 11px; line-height: 1; white-space: nowrap;
+    transition: background .15s;
+  }
+  .actions-overlay button:hover, .actions-row button:hover { background: var(--accent); }
+  .actions-overlay .btn-danger:hover, .actions-row .btn-danger:hover { background: var(--danger); }
+  .actions-overlay .btn-success:hover, .actions-row .btn-success:hover { background: var(--success); color: #000; }
+
+  /* ── Upload ── */
+  .upload-zone {
+    border: 2px dashed var(--bg3); border-radius: var(--radius);
+    padding: 30px 20px; text-align: center; margin-bottom: 12px;
+    display: none; cursor: pointer;
+  }
+  .upload-zone.active { display: block; }
+  .upload-zone.drag-over { border-color: var(--accent); background: rgba(59,130,246,.08); }
+  .upload-zone p { color: var(--text2); font-size: 13px; }
+  .upload-zone .big-icon { font-size: 36px; margin-bottom: 8px; }
+  .upload-progress { margin-top: 10px; display: none; }
+  .upload-progress.show { display: block; }
+  .progress-bar { width: 100%; height: 5px; background: var(--bg3); border-radius: 3px; overflow: hidden; }
+  .progress-bar .fill { height: 100%; background: var(--accent); width: 0%; transition: width .3s; }
+  .upload-status { font-size: 12px; color: var(--text2); margin-top: 4px; }
+
+  /* ── Modals ── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.6); z-index: 200;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--bg3);
+    border-radius: 12px; padding: 24px; width: 90%; max-width: 400px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal h3 { margin-bottom: 16px; font-size: 17px; }
+  .modal input[type="text"], .modal input[type="password"] {
+    width: 100%; padding: 10px 12px; background: var(--bg);
+    border: 1px solid var(--bg3); border-radius: var(--radius);
+    color: var(--text); font-size: 14px; margin-bottom: 8px;
+    outline: none; box-sizing: border-box;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* ── File Info Modal ── */
+  .file-info { text-align: center; }
+  .file-info .fi-icon { font-size: 44px; margin-bottom: 10px; }
+  .file-info .fi-name { font-size: 16px; font-weight: 600; word-break: break-all; margin-bottom: 14px; }
+  .file-info .fi-table { text-align: left; margin-bottom: 14px; }
+  .file-info .fi-table .row {
+    display: flex; justify-content: space-between; padding: 5px 0;
+    border-bottom: 1px solid var(--bg3); font-size: 13px;
+  }
+  .file-info .fi-table .row:last-child { border-bottom: none; }
+  .file-info .fi-table .label { color: var(--text2); }
+  .file-info .fi-table .value { color: var(--text); font-weight: 500; }
+  .file-info .fi-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+  .file-info .fi-actions button {
+    padding: 8px 16px; border-radius: var(--radius); border: none;
+    cursor: pointer; font-size: 13px; transition: all .15s;
+  }
+
+  .empty-state { text-align: center; padding: 50px 20px; color: var(--text2); }
+  .empty-state .big-icon { font-size: 56px; margin-bottom: 10px; opacity: .5; }
+  .search-empty { text-align: center; padding: 40px 20px; color: var(--text2); }
+  .search-empty .big-icon { font-size: 40px; margin-bottom: 8px; opacity: .5; }
+  .toast-container {
+    position: fixed; bottom: 20px; right: 20px; z-index: 300;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast {
+    padding: 10px 18px; border-radius: var(--radius);
+    background: var(--bg2); border: 1px solid var(--bg3);
+    color: var(--text); font-size: 13px; box-shadow: var(--shadow);
+    animation: slideIn .3s ease; min-width: 180px;
+  }
+  .toast.success { border-color: var(--success); }
+  .toast.error { border-color: var(--danger); }
+  @keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+  .preview-img { max-width:100%; max-height:300px; border-radius:6px; margin:8px 0; object-fit:contain; background:var(--bg); }
+  .preview-text {
+    background: var(--bg); border: 1px solid var(--bg3); border-radius: var(--radius);
+    padding: 12px; margin: 8px 0; max-height: 300px; overflow: auto;
+    font-family: "SF Mono","Fira Code","Consolas",monospace;
+    font-size: 12px; line-height: 1.5; text-align: left; white-space: pre-wrap; word-break: break-all;
+  }
+  .search-path { font-size: 11px; color: var(--accent2); margin-top: 2px; word-break: break-all; }
+  @media (max-width: 640px) {
+    .file-grid { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+    .file-list .file-item { flex-wrap: wrap; gap: 6px; }
+    .file-list .file-item .meta { min-width: auto; }
+    .container { padding: 10px 12px; }
+    .toolbar .view-toggle button { padding: 6px 7px; font-size: 12px; }
+    .search-box { width: 120px; }
+    .search-box:focus { width: 150px; }
+    .header { padding: 10px 12px; }
+    .header h1 { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1><span>&#x1f4c2;</span> Herme's File Server</h1>
+  <div class="header-right" id="headerRight">
+    <span class="user-name" id="userNameDisplay"></span>
+    <button class="btn-logout" id="logoutBtn" onclick="doLogout()" style="display:none">&#x1f6aa; 退出</button>
+  </div>
+</div>
+<div class="container">
+  <div class="breadcrumb" id="breadcrumb"></div>
+  <div class="toolbar">
+    <button onclick="toggleUpload()" class="btn-primary">&#x1f4e4; 上传</button>
+    <button onclick="showNewFolderDialog()">&#x1f4c1; 新建目录</button>
+    <button onclick="goBack()" id="backBtn">&#x2b06; 返回上级</button>
+    <button onclick="refreshList()" id="refreshBtn">&#x1f504; 刷新</button>
+    <input type="text" class="search-box" id="searchInput" placeholder="&#x1f50d; 搜索文件..." spellcheck="false" oninput="onSearchInput()">
+    <span class="spacer"></span>
+    <div class="view-toggle" id="viewToggle">
+      <button onclick="setView('grid')" id="viewGridBtn" class="active">&#x1f4ca; 卡片</button>
+      <button onclick="setView('list')" id="viewListBtn">&#x2630; 列表</button>
+    </div>
+  </div>
+  <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+    <div class="big-icon">&#x1f4e4;</div>
+    <p>点击选择文件，或将文件拖拽到这里</p>
+    <p style="font-size:12px;margin-top:4px">单个文件最大 200MB</p>
+    <input type="file" id="fileInput" multiple style="display:none" onchange="uploadFiles(this.files)">
+    <div class="upload-progress" id="uploadProgress">
+      <div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+      <div class="upload-status" id="uploadStatus"></div>
+    </div>
+  </div>
+  <div id="fileArea"></div>
+</div>
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div style="position:relative">
+      <h3 id="modalTitle" style="padding-right:28px">&#x1f512; 登录文件服务器</h3>
+      <button onclick="closeModal()" style="position:absolute;top:-6px;right:-8px;background:none;border:none;color:var(--text2);font-size:22px;cursor:pointer;line-height:1;padding:4px 8px;border-radius:4px;transition:color .15s" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color=''" title="关闭">&#x2716;</button>
+    </div>
+    <div id="modalBody"></div>
+    <div class="modal-actions" id="modalActions">
+      <button onclick="closeModal()" style="background:var(--bg3);border:1px solid var(--bg3);color:var(--text);padding:8px 16px;border-radius:var(--radius);cursor:pointer">取消</button>
+      <button id="modalConfirmBtn" onclick="confirmModal()" style="background:var(--accent);border:none;color:#fff;padding:8px 16px;border-radius:var(--radius);cursor:pointer">确定</button>
+    </div>
+  </div>
+</div>
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.26.0/dist/index.browser.min.js"></script>
+<script>
+var currentPath = '';
+var authHeader = '';
+var currentUser = '';
+var viewMode = localStorage.getItem('herme_files_view') || 'grid';
+var _allEntries = [];
+var _lastDirData = null;
+var _allFilesCache = null;
+var _searchPinyinCache = {};
+var uv = false;
+var ma = null;
+
+/* ── View ── */
+function setView(mode) {
+  viewMode = mode;
+  localStorage.setItem('herme_files_view', mode);
+  document.getElementById('viewGridBtn').className = mode === 'grid' ? 'active' : '';
+  document.getElementById('viewListBtn').className = mode === 'list' ? 'active' : '';
+  if (_lastDirData) renderDirectory(_lastDirData);
+}
+
+/* ── Auth ── */
+function loadAuth() {
+  var d = localStorage.getItem('herme_files_auth');
+  if (d) {
+    var parts = d.split(':', 2);
+    authHeader = 'Basic ' + btoa(parts[0] + ':' + parts[1]);
+    currentUser = parts[0];
+    updateHeaderUI();
+    return true;
+  }
+  return false;
+}
+
+function saveAuth(u, p) {
+  localStorage.setItem('herme_files_auth', u + ':' + p);
+  authHeader = 'Basic ' + btoa(u + ':' + p);
+  currentUser = u;
+  updateHeaderUI();
+}
+
+function clearAuth() {
+  localStorage.removeItem('herme_files_auth');
+  authHeader = '';
+  currentUser = '';
+  updateHeaderUI();
+}
+
+function updateHeaderUI() {
+  var nameEl = document.getElementById('userNameDisplay');
+  var logoutEl = document.getElementById('logoutBtn');
+  if (currentUser) {
+    nameEl.textContent = '\ud83d\udc64 ' + currentUser;
+    logoutEl.style.display = '';
+  } else {
+    nameEl.textContent = '';
+    logoutEl.style.display = 'none';
+  }
+}
+
+function doLogout() {
+  if (!confirm('\u786e\u5b9a\u8981\u9000\u51fa\u767b\u5f55\uff1f')) return;
+  clearAuth();
+  document.getElementById('fileArea').innerHTML = '';
+  document.getElementById('breadcrumb').innerHTML = '';
+  _lastDirData = null;
+  _allEntries = [];
+  _allFilesCache = null;
+  _searchPinyinCache = {};
+  document.getElementById('searchInput').value = '';
+  showLoginForm();
+}
+
+/* ── API ── */
+async function api(path, opts) {
+  var h = { 'Authorization': authHeader };
+  if (opts && opts.headers) { for (var k in opts.headers) { h[k] = opts.headers[k]; } }
+  var n = {};
+  for (var k in opts) { n[k] = opts[k]; }
+  n.headers = h;
+  var r = await fetch(path, n);
+  return r;
+}
+
+/* ── Login Form ── */
+function showLoginForm() {
+  document.getElementById('modalTitle').textContent = '\ud83d\udd10 \u767b\u5f55\u6587\u4ef6\u670d\u52a1\u5668';
+  document.getElementById('modalBody').innerHTML =
+    '<input type="text" id="loginUser" placeholder="Linux \u7528\u6237\u540d">' +
+    '<input type="password" id="loginPass" placeholder="\u5bc6\u7801" style="margin-bottom:16px">';
+  document.getElementById('modalConfirmBtn').textContent = '\u767b\u5f55';
+  document.getElementById('modalConfirmBtn').style.display = '';
+  document.getElementById('modalActions').style.display = '';
+  document.getElementById('modalOverlay').classList.add('show');
+  setTimeout(function(){ var el = document.getElementById('loginUser'); if (el) el.focus(); }, 100);
+  document.getElementById('modalTitle').dataset.escHandler = 'close';
+  ma = async function() {
+    var u = document.getElementById('loginUser').value.trim();
+    var p = document.getElementById('loginPass').value;
+    if (!u || !p) { toast('\u8bf7\u8f93\u5165\u7528\u6237\u540d\u548c\u5bc6\u7801', 'error'); return; }
+    var ta = 'Basic ' + btoa(u + ':' + p);
+    var r = await fetch('/api/list?path=', { headers: { 'Authorization': ta } });
+    if (r.ok) { saveAuth(u, p); closeModal(); loadFileList(''); }
+    else { toast('\u767b\u5f55\u5931\u8d25', 'error'); }
+  };
+}
+
+/* ── File List ── */
+async function loadFileList(dirPath) {
+  if (!dirPath) dirPath = '';
+  currentPath = dirPath;
+  _allFilesCache = null;
+  _searchPinyinCache = {};
+  var r = await api('/api/list?path=' + encodeURIComponent(dirPath));
+  if (!r) return;
+  var d = await r.json();
+  _lastDirData = d;
+  renderBreadcrumb(dirPath);
+  if (d.type === 'directory') {
+    _allEntries = d.entries || [];
+    applySearch();
+  } else {
+    _allEntries = [];
+    showFileInfo(d);
+  }
+  document.getElementById('searchInput').value = '';
+}
+
+function getPinyinInitials(name) {
+  if (_searchPinyinCache[name]) return _searchPinyinCache[name];
+  try {
+    if (typeof pinyinPro !== 'undefined' && pinyinPro.pinyin) {
+      var p = pinyinPro.pinyin(name, { pattern: 'first', toneType: 'none', type: 'array' });
+      var r = p.join('').toLowerCase().replace(/[^a-z]/g, '');
+      _searchPinyinCache[name] = r;
+      return r;
+    }
+  } catch(e) {}
+  return '';
+}
+
+function applySearch() {
+  var q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!q) {
+    if (_lastDirData) renderDirectory(_lastDirData);
+    return;
+  }
+
+  // Show searching state
+  var el = document.getElementById('fileArea');
+  el.innerHTML = '<div class="search-empty"><div class="big-icon">\u23f3</div><p>\u641c\u7d22\u4e2d...</p></div>';
+
+  // Call backend recursive search for substring matching
+  api('/api/list?path=' + encodeURIComponent(currentPath) + '&search=' + encodeURIComponent(q)).then(function(r){
+    if (!r) return;
+    r.json().then(function(data){
+      var results = data.entries || [];
+
+      // Also do pinyin matching: get all files if not cached
+      var pinyinDone = function() {
+        var seen = {};
+        results.forEach(function(e){ seen[e.path] = true; });
+
+        if (_allFilesCache && _allFilesCache.length > 0) {
+          _allFilesCache.forEach(function(e){
+            if (seen[e.path]) return;
+            var initials = getPinyinInitials(e.name);
+            if (initials && initials.indexOf(q) !== -1) {
+              results.push(e);
+              seen[e.path] = true;
+            }
+          });
+        }
+
+        renderSearchResults(results, q);
+      };
+
+      if (!_allFilesCache) {
+        // Fetch all files for pinyin matching
+        api('/api/list?path=&search=').then(function(r2){
+          if (!r2) { pinyinDone(); return; }
+          r2.json().then(function(d2){
+            _allFilesCache = d2.entries || [];
+            pinyinDone();
+          }).catch(function(){ pinyinDone(); });
+        }).catch(function(){ pinyinDone(); });
+      } else {
+        pinyinDone();
+      }
+    });
+  });
+}
+
+function renderSearchResults(entries, query) {
+  var el = document.getElementById('fileArea');
+  if (entries.length === 0) {
+    el.innerHTML = '<div class="search-empty"><div class="big-icon">\ud83d\udd0d</div><p>\u6ca1\u6709\u5339\u914d\u7684\u6587\u4ef6</p></div>';
+    return;
+  }
+
+  // Sort: directories first, then by name
+  entries.sort(function(a,b){
+    if (a.is_dir && !b.is_dir) return -1;
+    if (!a.is_dir && b.is_dir) return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  var isGrid = viewMode === 'grid';
+  var cls = isGrid ? 'file-grid' : 'file-list';
+  var h = '<div style="margin-bottom:8px;font-size:12px;color:var(--text2)">\ud83d\udd0d \u627e\u5230 ' + entries.length + ' \u4e2a\u7ed3\u679c\u201c' + esc(query) + '\u201d</div>';
+  h += '<div class="' + cls + '">';
+
+  for (var i = 0; i < entries.length; i++) {
+    var e = entries[i];
+    var ic = e.icon || '\ud83d\udcc4';
+    var onclick = e.is_dir
+      ? 'loadFileList(\'' + esc(e.path) + '\')'
+      : 'showFileInfo(\'' + esc(e.path) + '\')';
+    var dragAttrs = '';
+    if (!e.is_dir) {
+      dragAttrs = ' draggable="true" ondragstart="onDragStart(event,\'' + esc(e.path) + '\')"';
+    } else {
+      dragAttrs = ' ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,\'' + esc(e.path) + '\')"';
+    }
+
+    h += '<div class="file-item" onclick="' + onclick + '"' + dragAttrs + '>';
+
+    if (isGrid) {
+      h += '<div class="actions-overlay">';
+      if (!e.is_dir) {
+        h += '<button onclick="event.stopPropagation();downloadFile(\'' + esc(e.path) + '\')" class="btn-success">\u2b07</button>';
+        h += '<button onclick="event.stopPropagation();copyUrl(\'' + esc(e.path) + '\')">\ud83d\udccb</button>';
+      }
+      h += '<button onclick="event.stopPropagation();deleteItem(\'' + esc(e.path) + '\')" class="btn-danger">\u2715</button>';
+      h += '</div>';
+      h += '<div class="icon">' + ic + '</div>';
+      h += '<div class="name">' + esc(e.name) + '</div>';
+      h += '<div class="meta">' + (e.is_dir ? '\u6587\u4ef6\u5939' : e.size_str) + '</div>';
+      if (e.path.indexOf('/') > -1) {
+        var pdir = e.path.substring(0, e.path.lastIndexOf('/'));
+        h += '<div class="search-path">' + esc(pdir) + '</div>';
+      }
+    } else {
+      h += '<div class="icon">' + ic + '</div>';
+      h += '<div class="name" style="flex:0.6">' + esc(e.name) + '</div>';
+      if (e.path.indexOf('/') > -1) {
+        var pdir2 = e.path.substring(0, e.path.lastIndexOf('/'));
+        h += '<div style="font-size:11px;color:var(--accent2);flex:0.4;word-break:break-all">' + esc(pdir2) + '</div>';
+      } else {
+        h += '<div style="flex:0.4"></div>';
+      }
+      h += '<div class="meta">' + (e.is_dir ? '\u6587\u4ef6\u5939' : e.size_str) + '</div>';
+      h += '<div class="actions-row" onclick="event.stopPropagation()">';
+      if (!e.is_dir) {
+        h += '<button onclick="downloadFile(\'' + esc(e.path) + '\')" class="btn-success">\u2b07 \u4e0b\u8f7d</button>';
+        h += '<button onclick="copyUrl(\'' + esc(e.path) + '\')">\ud83d\udccb URL</button>';
+      }
+      h += '<button onclick="deleteItem(\'' + esc(e.path) + '\')" class="btn-danger">\ud83d\uddd1</button>';
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+function onSearchInput() {
+  // Debounce: if there was a pending search, clear it
+  if (window._searchTimer) clearTimeout(window._searchTimer);
+  window._searchTimer = setTimeout(function(){
+    window._searchTimer = null;
+    applySearch();
+  }, 200);
+}
+
+/* ── Breadcrumb ── */
+function renderBreadcrumb(dirPath) {
+  var p = dirPath ? dirPath.split('/') : [];
+  var h = '<a href="#" onclick="loadFileList(\'\')">...</a>';
+  var a = '';
+  for (var i = 0; i < p.length; i++) {
+    if (!p[i]) continue;
+    a += (a ? '/' : '') + p[i];
+    h += ' / ';
+    if (a === dirPath) { h += '<span class="current">' + esc(p[i]) + '</span>'; }
+    else { h += '<a href="#" onclick="loadFileList(\'' + esc(a) + '\')">' + esc(p[i]) + '</a>'; }
+  }
+  document.getElementById('breadcrumb').innerHTML = h;
+  // Show/hide back button
+  document.getElementById('backBtn').style.display = dirPath ? '' : 'none';
+}
+
+function goBack() {
+  if (!currentPath) return;
+  var parts = currentPath.split('/');
+  parts.pop();
+  loadFileList(parts.join('/'));
+}
+
+/* ── Render ── */
+function renderDirectory(d) {
+  var el = document.getElementById('fileArea');
+  var ee = d.entries || [];
+  if (ee.length === 0 && document.getElementById('searchInput').value.trim()) {
+    el.innerHTML = '<div class="search-empty"><div class="big-icon">\ud83d\udd0d</div><p>\u6ca1\u6709\u5339\u914d\u7684\u6587\u4ef6</p></div>';
+    return;
+  }
+  if (ee.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="big-icon">\ud83d\udcc2</div><p>\u8fd9\u4e2a\u76ee\u5f55\u662f\u7a7a\u7684</p></div>';
+    return;
+  }
+  var isGrid = viewMode === 'grid';
+  var cls = isGrid ? 'file-grid' : 'file-list';
+  var h = '<div class="' + cls + '">';
+  for (var i = 0; i < ee.length; i++) {
+    var e = ee[i];
+    var ic = e.icon || '\ud83d\udcc4';
+    var onclick = e.is_dir
+      ? 'loadFileList(\'' + esc(e.path) + '\')'
+      : 'showFileInfo(\'' + esc(e.path) + '\')';
+    var dragAttrs = '';
+    if (!e.is_dir) {
+      dragAttrs = ' draggable="true" ondragstart="onDragStart(event,\'' + esc(e.path) + '\')"';
+    } else {
+      dragAttrs = ' ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event,\'' + esc(e.path) + '\')"';
+    }
+
+    h += '<div class="file-item" onclick="' + onclick + '"' + dragAttrs + '>';
+
+    if (isGrid) {
+      // Card view: actions overlay on hover
+      h += '<div class="actions-overlay">';
+      if (!e.is_dir) {
+        h += '<button onclick="event.stopPropagation();downloadFile(\'' + esc(e.path) + '\')" class="btn-success">\u2b07</button>';
+        h += '<button onclick="event.stopPropagation();copyUrl(\'' + esc(e.path) + '\')">\ud83d\udccb</button>';
+      }
+      h += '<button onclick="event.stopPropagation();deleteItem(\'' + esc(e.path) + '\')" class="btn-danger">\u2715</button>';
+      h += '</div>';
+      h += '<div class="icon">' + ic + '</div>';
+      h += '<div class="name">' + esc(e.name) + '</div>';
+      h += '<div class="meta">' + (e.is_dir ? '\u6587\u4ef6\u5939' : e.size_str) + '</div>';
+    } else {
+      // List view: inline actions row
+      h += '<div class="icon">' + ic + '</div>';
+      h += '<div class="name">' + esc(e.name) + '</div>';
+      h += '<div class="meta">' + (e.is_dir ? '\u6587\u4ef6\u5939' : e.size_str) + '</div>';
+      h += '<div class="actions-row" onclick="event.stopPropagation()">';
+      if (!e.is_dir) {
+        h += '<button onclick="downloadFile(\'' + esc(e.path) + '\')" class="btn-success">\u2b07 \u4e0b\u8f7d</button>';
+        h += '<button onclick="copyUrl(\'' + esc(e.path) + '\')">\ud83d\udccb URL</button>';
+      }
+      h += '<button onclick="deleteItem(\'' + esc(e.path) + '\')" class="btn-danger">\ud83d\uddd1</button>';
+      h += '</div>';
+    }
+    h += '</div>';
+  }
+  h += '</div>';
+  el.innerHTML = h;
+}
+
+/* ── Drag to Folder ── */
+var _dragSourcePath = '';
+
+function onDragStart(e, path) {
+  _dragSourcePath = path;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', path);
+  // Highlight the dragged item
+  var target = e.target.closest('.file-item');
+  if (target) target.classList.add('dragging');
+}
+
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  var target = e.target.closest('.file-item');
+  if (target) target.classList.add('folder-hover');
+}
+
+function onDragLeave(e) {
+  var target = e.target.closest('.file-item');
+  if (target) target.classList.remove('folder-hover');
+}
+
+function onDrop(e, destPath) {
+  e.preventDefault();
+  e.stopPropagation();
+  // Remove all hover highlights
+  document.querySelectorAll('.folder-hover').forEach(function(el){ el.classList.remove('folder-hover'); });
+  document.querySelectorAll('.dragging').forEach(function(el){ el.classList.remove('dragging'); });
+
+  var srcPath = _dragSourcePath || e.dataTransfer.getData('text/plain');
+  if (!srcPath || !destPath) return;
+  if (srcPath === destPath) return;
+
+  var srcName = srcPath.split('/').pop();
+  if (!confirm('\u786e\u5b9a\u5c06 "' + srcName + '" \u79fb\u52a8\u5230\u76ee\u6807\u6587\u4ef6\u5939\uff1f')) return;
+
+  doMove(srcPath, destPath);
+}
+
+async function doMove(src, destDir) {
+  var r = await fetch('/api/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+    body: JSON.stringify({ source: src, dest_dir: destDir })
+  });
+  if (r.status === 401) { clearAuth(); showLoginForm(); return; }
+  if (r.ok) {
+    toast('\u79fb\u52a8\u6210\u529f', 'success');
+    refreshList();
+  } else {
+    var e = await r.json();
+    toast(e.detail || '\u79fb\u52a8\u5931\u8d25', 'error');
+  }
+}
+
+/* ── File Info ── */
+function showFileInfo(filePath) {
+  var fp = typeof filePath === 'string' ? filePath : filePath.path;
+  api('/api/list?path=' + encodeURIComponent(fp)).then(function(r){
+    if (!r) return;
+    r.json().then(function(d){
+      var ic = d.icon || '\ud83d\udcc4';
+      var sizeStr = d.size_str || '\u2014';
+      var modified = d.modified ? d.modified.replace('T', ' ').substring(0, 19) : '\u2014';
+      var mime = d.mime || '\u2014';
+      var ext = (fp.indexOf('.') > -1 ? fp.split('.').pop().toUpperCase() : '');
+      var imageExts = {'JPG':1,'JPEG':1,'PNG':1,'GIF':1,'WEBP':1,'SVG':1,'BMP':1,'ICO':1};
+      var textExts = {'TXT':1,'MD':1,'JSON':1,'YAML':1,'YML':1,'PY':1,'JS':1,'TS':1,'HTML':1,'CSS':1,'XML':1,'LOG':1,'CONF':1,'SH':1,'ENV':1,'CFG':1,'INI':1,'TOML':1,'CSV':1,'SQL':1,'TEX':1,'RST':1,'H':1,'C':1,'CPP':1,'HPP':1,'JAVA':1,'GO':1,'RS':1,'RB':1,'PHP':1,'LUA':1,'SCALA':1,'KT':1,'SWIFT':1,'PL':1,'GRADLE':1,'DOCKERFILE':1,'MAKEFILE':1,'GITIGNORE':1,'EDITORCONFIG':1};
+      var isImage = imageExts[ext] === 1;
+      var isText = textExts[ext] === 1;
+
+      document.getElementById('modalTitle').textContent = '\ud83d\udcc4 ' + esc(d.name || fp.split('/').pop());
+      document.getElementById('modalConfirmBtn').style.display = 'none';
+      document.getElementById('modalActions').style.display = 'none';
+
+      var bodyHtml = '<div class="file-info">';
+
+      // Preview area
+      if (isImage) {
+        bodyHtml += '<img class="preview-img" id="previewImg" alt="' + esc(d.name || '') + '" style="cursor:zoom-in">';
+        // Fetch image with auth and create object URL
+        api('/api/download?path=' + encodeURIComponent(fp)).then(function(r3){
+          if (!r3) return;
+          r3.blob().then(function(b){
+            var el = document.getElementById('previewImg');
+            if (el) { el.src = URL.createObjectURL(b); }
+          });
+        });
+      } else if (isText) {
+        bodyHtml += '<div class="preview-text" id="textPreview">\u52a0\u8f7d\u4e2d...</div>';
+      }
+
+      bodyHtml +=
+        '<div class="fi-icon" style="margin-top:' + (isImage || isText ? '4' : '0') + 'px">' + ic + '</div>' +
+        '<div class="fi-name">' + esc(d.name || fp.split('/').pop()) + '</div>' +
+        '<div class="fi-table">' +
+        '<div class="row"><span class="label">\u5927\u5c0f</span><span class="value">' + sizeStr + '</span></div>' +
+        '<div class="row"><span class="label">\u7c7b\u578b</span><span class="value">' + mime + '</span></div>';
+      if (ext) bodyHtml += '<div class="row"><span class="label">\u6269\u5c55\u540d</span><span class="value">' + ext + '</span></div>';
+      bodyHtml +=
+        '<div class="row"><span class="label">\u4fee\u6539\u65f6\u95f4</span><span class="value">' + modified + '</span></div>' +
+        '<div class="row"><span class="label">\u8def\u5f84</span><span class="value" style="font-size:12px;word-break:break-all;max-width:220px;text-align:right">' + esc(fp) + '</span></div>' +
+        '</div>' +
+        '<div class="fi-actions">' +
+        '<button onclick="closeModal();downloadFile(\'' + esc(fp) + '\')" style="background:var(--accent);color:#fff">\u2b07 \u4e0b\u8f7d</button>' +
+        '<button onclick="copyUrl(\'' + esc(fp) + '\')" style="background:var(--bg3);color:var(--text);border:1px solid var(--bg3)">\ud83d\udccb \u590d\u5236 URL</button>' +
+        '<button onclick="closeModal();deleteItem(\'' + esc(fp) + '\')" style="background:var(--danger);color:#fff">\ud83d\uddd1 \u5220\u9664</button>' +
+        '</div>' +
+        '</div>';
+      document.getElementById('modalBody').innerHTML = bodyHtml;
+
+      // Fetch text content for text files
+      if (isText) {
+        api('/api/read?path=' + encodeURIComponent(fp)).then(function(r2){
+          if (!r2) return;
+          r2.json().then(function(td){
+            var previewEl = document.getElementById('textPreview');
+            if (previewEl) {
+              var txt = td.content || '';
+              previewEl.textContent = txt;
+              if (td.truncated) previewEl.textContent += '\n\n... (\u6587\u4ef6\u8fc7\u5927\uff0c\u4ec5\u663e\u793a\u524d100KB)';
+            }
+          }).catch(function(){});
+        });
+      }
+
+      document.getElementById('modalOverlay').classList.add('show');
+      document.getElementById('modalTitle').dataset.escHandler = 'close';
+      ma = null;
+    });
+  });
+}
+
+/* ── Download & URL ── */
+function downloadFile(fp) {
+  fetch('/api/download?path=' + encodeURIComponent(fp), {
+    headers: { 'Authorization': authHeader }
+  }).then(function(r){
+    if (r.status === 401) { clearAuth(); showLoginForm(); return null; }
+    return r.blob();
+  }).then(function(b){
+    if (!b) return;
+    var u = URL.createObjectURL(b);
+    var a = document.createElement('a');
+    a.href = u; a.download = fp.split('/').pop();
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(u);
+  }).catch(function(){ toast('\u4e0b\u8f7d\u5931\u8d25', 'error'); });
+}
+
+function copyUrl(fp) {
+  var url = window.location.origin + '/files/' + encodeURIComponent(fp);
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function(){
+      toast('\u94fe\u63a5\u5df2\u590d\u5236', 'success');
+    }).catch(function(){ fallbackCopy(url); });
+  } else { fallbackCopy(url); }
+}
+
+function fallbackCopy(text) {
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); toast('\u94fe\u63a5\u5df2\u590d\u5236', 'success'); }
+  catch(e) { toast('\u590d\u5236\u5931\u8d25\uff0c\u8bf7\u624b\u52a8\u590d\u5236', 'error'); }
+  document.body.removeChild(ta);
+}
+
+/* ── Upload ── */
+function toggleUpload() { uv = !uv; document.getElementById('uploadZone').classList.toggle('active', uv); }
+function uploadFiles(files) {
+  if (!files || !files.length) return;
+  var pg = document.getElementById('uploadProgress');
+  var fl = document.getElementById('progressFill');
+  var st = document.getElementById('uploadStatus');
+  pg.classList.add('show');
+  for (var i = 0; i < files.length; i++) {
+    if (files[i].size > 209715200) { toast('\u6587\u4ef6\u8d85\u8fc7200MB\u9650\u5236', 'error'); return; }
+  }
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
+  st.textContent = '\u6b63\u5728\u4e0a\u4f20 ' + files.length + ' \u4e2a\u6587\u4ef6...';
+  fl.style.width = '10%';
+  var x = new XMLHttpRequest();
+  x.open('POST', '/api/upload');
+  x.setRequestHeader('Authorization', authHeader);
+  x.setRequestHeader('X-Upload-Path', currentPath);
+  x.upload.onprogress = function(e) {
+    if (e.lengthComputable) fl.style.width = Math.round((e.loaded/e.total)*100) + '%';
+  };
+  x.onload = function() {
+    if (x.status === 200) {
+      fl.style.width = '100%';
+      st.textContent = '\u2705 \u4e0a\u4f20\u5b8c\u6210\uff01';
+      toast('\u4e0a\u4f20\u6210\u529f ' + files.length + ' \u4e2a\u6587\u4ef6', 'success');
+      setTimeout(function(){ pg.classList.remove('show'); uv=false; document.getElementById('uploadZone').classList.remove('active'); refreshList(); }, 1000);
+    } else if (x.status === 413) { st.textContent = '\u274c \u6587\u4ef6\u8d85\u8fc7200MB'; toast('\u6587\u4ef6\u8fc7\u5927', 'error'); }
+    else { st.textContent = '\u274c \u4e0a\u4f20\u5931\u8d25'; toast('\u4e0a\u4f20\u5931\u8d25', 'error'); }
+  };
+  x.onerror = function() { toast('\u7f51\u7edc\u9519\u8bef', 'error'); };
+  x.send(fd);
+}
+
+/* ── Keyboard Shortcuts ── */
+document.addEventListener('keydown', function(e) {
+  // Esc: close modal or clear search
+  if (e.key === 'Escape') {
+    var overlay = document.getElementById('modalOverlay');
+    if (overlay.classList.contains('show')) {
+      closeModal();
+      return;
+    }
+    // Clear search if focused
+    var si = document.getElementById('searchInput');
+    if (document.activeElement === si && si.value) {
+      si.value = '';
+      onSearchInput();
+      si.focus();
+      return;
+    }
+  }
+  // Enter in forms: trigger confirm
+  if (e.key === 'Enter') {
+    var active = document.activeElement;
+    if (active && (active.id === 'loginUser' || active.id === 'loginPass' || active.id === 'modalInput')) {
+      e.preventDefault();
+      confirmModal();
+    }
+  }
+  // / key: focus search box (only when not in an input)
+  if (e.key === '/' && document.activeElement && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    var si = document.getElementById('searchInput');
+    if (si) { si.focus(); si.select(); }
+  }
+});
+
+/* ── New Folder ── */
+function showNewFolderDialog() {
+  if (!authHeader) { showLoginForm(); return; }
+  document.getElementById('modalTitle').textContent = '\ud83d\udcc1 \u65b0\u5efa\u76ee\u5f55';
+  document.getElementById('modalBody').innerHTML = '<input type="text" id="modalInput" placeholder="\u8f93\u5165\u76ee\u5f55\u540d\u79f0..." style="margin-bottom:0">';
+  document.getElementById('modalConfirmBtn').textContent = '\u521b\u5efa';
+  document.getElementById('modalConfirmBtn').style.display = '';
+  document.getElementById('modalActions').style.display = '';
+  document.getElementById('modalOverlay').classList.add('show');
+  document.getElementById('modalTitle').dataset.escHandler = 'close';
+  setTimeout(function(){ var el = document.getElementById('modalInput'); if (el) el.focus(); }, 100);
+  ma = async function() {
+    var n = document.getElementById('modalInput').value.trim();
+    if (!n) return;
+    var r = await fetch('/api/mkdir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+      body: JSON.stringify({ path: currentPath, name: n })
+    });
+    if (r.status === 401) { clearAuth(); showLoginForm(); return; }
+    if (r.ok) { toast('\u76ee\u5f55\u521b\u5efa\u6210\u529f', 'success'); refreshList(); }
+    else { var e = await r.json(); toast(e.detail || '\u521b\u5efa\u5931\u8d25', 'error'); }
+  };
+}
+
+/* ── Modal ── */
+function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); ma = null; }
+async function confirmModal() { if (ma) { await ma(); closeModal(); } }
+
+/* ── Delete ── */
+async function deleteItem(fp) {
+  if (!confirm('\u786e\u5b9a\u8981\u5220\u9664?')) return;
+  var r = await fetch('/api/delete', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
+    body: JSON.stringify({ path: fp })
+  });
+  if (r.status === 401) { clearAuth(); showLoginForm(); return; }
+  if (r.ok) { toast('\u5df2\u5220\u9664', 'success'); refreshList(); }
+  else { var e = await r.json(); toast(e.detail || '\u5220\u9664\u5931\u8d25', 'error'); }
+}
+
+/* ── Refresh ── */
+async function refreshList() {
+  var b = document.getElementById('refreshBtn');
+  b.textContent = '\u23f3...'; b.disabled = true;
+  await loadFileList(currentPath);
+  b.textContent = '\ud83d\udd04 \u5237\u65b0'; b.disabled = false;
+}
+
+/* ── Toast ── */
+function toast(m, t) {
+  if (!t) t = 'info';
+  var c = document.getElementById('toastContainer');
+  var e = document.createElement('div');
+  e.className = 'toast ' + t; e.textContent = m;
+  c.appendChild(e);
+  setTimeout(function(){ e.style.opacity = '0'; e.style.transition = 'opacity .3s'; setTimeout(function(){e.remove();},300); }, 3000);
+}
+
+/* ── Escape ── */
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded', function() {
+  var zn = document.getElementById('uploadZone');
+  document.addEventListener('dragover', function(e){e.preventDefault();zn.classList.add('drag-over');});
+  document.addEventListener('dragleave', function(e){zn.classList.remove('drag-over');});
+  document.addEventListener('drop', function(e){
+    e.preventDefault(); zn.classList.remove('drag-over'); uv=true; zn.classList.add('active');
+    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+  });
+  // Clean up drag highlights on page
+  document.addEventListener('dragend', function(){
+    document.querySelectorAll('.folder-hover, .dragging').forEach(function(el){
+      el.classList.remove('folder-hover', 'dragging');
+    });
+  });
+  setView(viewMode);
+  document.getElementById('backBtn').style.display = 'none';
+});
+
+if (loadAuth()) { loadFileList(''); }
+else { loadFileList(''); }
+</script>
+</body>
+</html>

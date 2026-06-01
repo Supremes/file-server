@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Dashboard — Herme Server</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<style>
+  /* ── Reset ── */
+  *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+  /* ── Apple SF Pro font stack ── */
+  body {
+    font-family: -apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", "Noto Sans SC", sans-serif;
+    background: #000;
+    color: #f5f5f7;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  /* ── Glassmorphism nav bar ── */
+  .nav {
+    position: fixed; top:0; left:0; right:0; z-index:100;
+    background: rgba(0,0,0,.85);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(255,255,255,.08);
+    padding: 0 24px; height: 52px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .nav-brand {
+    font-size: 14px; font-weight: 600; letter-spacing: -.01em;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .nav-brand span { color: #86868b; font-weight: 400; }
+  .nav-brand .dot {
+    width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  }
+  .nav-brand .dot.green { background: #30d158; }
+  .nav-brand .dot.yellow { background: #ffd60a; }
+  .nav-brand .dot.red { background: #ff453a; }
+  .nav-time { font-size: 12px; color: #86868b; font-variant-numeric: tabular-nums; }
+
+  /* ── Layout ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 76px 20px 40px; }
+
+  /* ── Hero ── */
+  .hero { margin-bottom: 32px; }
+  .hero h1 {
+    font-size: 32px; font-weight: 700; letter-spacing: -.02em;
+    background: linear-gradient(135deg, #f5f5f7 0%, #86868b 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p { font-size: 14px; color: #86868b; margin-top: 4px; }
+  .hero .uptime-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-top: 8px; font-size: 13px; color: #30d158;
+  }
+  .hero .uptime-badge::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: #30d158; display: inline-block;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+  /* ── Grid ── */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 680px) { .grid { grid-template-columns: 1fr; } }
+
+  /* ── Card ── */
+  .card {
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 16px; padding: 20px;
+    transition: background .2s;
+  }
+  .card:hover { background: rgba(255,255,255,.06); }
+  .card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card-title {
+    font-size: 13px; font-weight: 600; color: #86868b;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  .card-value {
+    font-size: 13px; font-weight: 500; color: #f5f5f7;
+  }
+  .card-body { position: relative; }
+
+  /* ── Progress Ring ── */
+  .ring-wrap {
+    display: flex; align-items: center; gap: 16px;
+  }
+  .ring-svg { flex-shrink: 0; }
+  .ring-info { flex:1; }
+  .ring-pct { font-size: 28px; font-weight: 700; letter-spacing: -.02em; }
+  .ring-label { font-size: 12px; color: #86868b; margin-top: 2px; }
+  .ring-bar {
+    height: 4px; background: rgba(255,255,255,.1); border-radius: 2px;
+    margin-top: 10px; overflow: hidden;
+  }
+  .ring-bar-fill {
+    height: 100%; border-radius: 2px; transition: width .6s cubic-bezier(.22,1,.36,1);
+  }
+
+  /* ── Process List ── */
+  .proc-list { display: flex; flex-direction: column; gap: 10px; }
+  .proc-item {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .proc-status {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .proc-status.running { background: #30d158; }
+  .proc-status.stopped { background: #ff453a; }
+  .proc-status.unknown { background: #ffd60a; }
+  .proc-name { font-size: 13px; font-weight: 500; flex:1; }
+  .proc-info { font-size: 12px; color: #86868b; }
+  .proc-pid { font-size: 11px; color: #48484a; font-variant-numeric: tabular-nums; }
+
+  /* ── Network ── */
+  .net-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .net-item { text-align: center; padding: 12px; background: rgba(255,255,255,.03); border-radius: 12px; }
+  .net-item .val { font-size: 18px; font-weight: 600; }
+  .net-item .lbl { font-size: 11px; color: #86868b; margin-top: 2px; }
+
+  /* ── Detail Rows ── */
+  .detail-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .detail-row:last-child { border-bottom: none; }
+  .detail-label { color: #86868b; }
+  .detail-value { font-weight: 500; }
+
+  /* ── Top processes ── */
+  .top-proc { font-size: 12px; }
+  .top-proc th { text-align: left; color: #86868b; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; padding: 4px 8px; }
+  .top-proc td { padding: 3px 8px; color: #a1a1a6; font-variant-numeric: tabular-nums; }
+  .top-proc tr:hover td { background: rgba(255,255,255,.03); border-radius: 4px; }
+  .top-proc .name { color: #f5f5f7; font-weight: 500; }
+
+  /* ── Load average spark ── */
+  .load-bar-group { display: flex; gap: 6px; align-items: flex-end; height: 36px; margin-top: 8px; }
+  .load-bar { width: 100%; border-radius: 3px 3px 0 0; min-height: 4px; transition: height .5s; }
+  .load-labels { display: flex; gap: 6px; font-size: 11px; color: #86868b; margin-top: 4px; }
+  .load-labels span { flex: 1; text-align: center; }
+
+  /* ── Sparkline ── */
+  .spark-wrap { position: relative; height: 40px; margin-top: 8px; }
+  .spark-line { width: 100%; height: 100%; }
+
+  /* ── Toast ── */
+  .toast-container {
+    position: fixed; bottom: 20px; right: 20px; z-index: 300;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .toast {
+    padding: 10px 18px; border-radius: 10px;
+    background: rgba(30,30,30,.95);
+    border: 1px solid rgba(255,255,255,.1);
+    color: #f5f5f7; font-size: 13px;
+    backdrop-filter: blur(10px);
+    animation: slideIn .3s ease; min-width: 180px;
+  }
+  .toast.error { border-color: #ff453a; }
+  @keyframes slideIn { from { transform: translateX(100%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.2); border-radius: 2px; }
+
+  .full { grid-column: 1 / -1; }
+  @media (max-width: 680px) { .full { grid-column: 1; } }
+
+  /* ── Token Grid ── */
+  .token-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 16px;
+    text-align: center;
+  }
+  @media (max-width: 680px) {
+    .token-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  .token-item {
+    padding: 12px;
+    background: rgba(255,255,255,.03);
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  .token-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: #0a84ff;
+    font-variant-numeric: tabular-nums;
+  }
+  .token-label {
+    font-size: 12px;
+    color: #86868b;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <div class="nav-brand">
+    <span>⬡</span> Herme Server <span>Dashboard</span>
+  </div>
+  <div class="nav-time" id="navTime"></div>
+</div>
+
+<div class="container">
+  <div class="hero">
+    <h1>Server Overview</h1>
+    <p id="hostInfo">Loading…</p>
+    <div class="uptime-badge" id="uptimeBadge">System online</div>
+  </div>
+
+  <div class="grid" id="dashboardGrid">
+    <!-- populated by JS -->
+  </div>
+
+  <div class="card full" id="tokenCard" style="margin-top: 12px;">
+    <div class="card-header"><span class="card-title">Token Usage (Xiaomi MiMo)</span></div>
+    <div class="card-body"><div class="token-grid">
+      <div class="token-item"><div class="token-value" id="tokenTotal">—</div><div class="token-label">Total Tokens</div></div>
+      <div class="token-item"><div class="token-value" id="tokenInput">—</div><div class="token-label">Input Tokens</div></div>
+      <div class="token-item"><div class="token-value" id="tokenOutput">—</div><div class="token-label">Output Tokens</div></div>
+      <div class="token-item"><div class="token-value" id="tokenCalls">—</div><div class="token-label">API Calls</div></div>
+      <div class="token-item"><div class="token-value" id="tokenToday">—</div><div class="token-label">Today</div></div>
+    </div></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+var authHeader = '';
+var statusHistory = { cpu: [], mem: [], load: [] };
+var MAX_HISTORY = 30;
+
+function loadAuth() {
+  var d = localStorage.getItem('herme_files_auth');
+  if (d) {
+    var parts = d.split(':', 2);
+    authHeader = 'Basic ' + btoa(parts[0] + ':' + parts[1]);
+    return true;
+  }
+  return false;
+}
+
+function showLoginForm() {
+  var u = prompt('Linux 用户名:');
+  if (!u) return false;
+  var p = prompt('密码:');
+  if (!p) return false;
+  var ta = 'Basic ' + btoa(u + ':' + p);
+  return fetch('/api/status').then(function(r){
+    if (r.ok) {
+      localStorage.setItem('herme_files_auth', u + ':' + p);
+      authHeader = ta;
+      return true;
+    }
+    toast('登录失败', 'error');
+    return false;
+  });
+}
+
+async function api(path) {
+  var r = await fetch(path, { headers: { 'Authorization': authHeader } });
+  return r.json();
+}
+
+/* ── Render ── */
+function pctColor(v) {
+  if (v > 90) return '#ff453a';
+  if (v > 70) return '#ffd60a';
+  return '#30d158';
+}
+
+function render(data) {
+  var g = document.getElementById('dashboardGrid');
+  var d = data;
+
+  // Track history
+  if (d.cpu) {
+    statusHistory.cpu.push(d.cpu.usage);
+    if (statusHistory.cpu.length > MAX_HISTORY) statusHistory.cpu.shift();
+  }
+  if (d.memory) {
+    statusHistory.mem.push(d.memory.percent);
+    if (statusHistory.mem.length > MAX_HISTORY) statusHistory.mem.shift();
+  }
+
+  // Update nav time
+  document.getElementById('navTime').textContent = new Date().toLocaleString('zh-CN', {hour12:false});
+
+  // Host info
+  document.getElementById('hostInfo').textContent = (d.host || '') + '  ·  ' + (d.os || '');
+
+  // Uptime
+  var upEl = document.getElementById('uptimeBadge');
+  if (d.uptime) { upEl.textContent = '● System online  ·  ' + d.uptime; }
+  else { upEl.textContent = '● System online'; }
+
+  // Build grid
+  var mem = d.memory || {percent:0,total:0,used:0,free:0};
+  var disk = d.disk || {percent:0,total:0,used:0,free:0};
+  var cpu = d.cpu || {usage:0,cores:0};
+  var procs = d.processes || [];
+  var net = d.network || {rx:0,tx:0,rx_total:0,tx_total:0};
+  var load = d.load_avg || [0,0,0];
+  var topCpu = d.top_cpu || [];
+  var swap = d.swap || {percent:0,total:0,used:0};
+
+  // Mem ring
+  var memColor = pctColor(mem.percent);
+  var memArc = (mem.percent / 100) * 283;
+  var memRemain = 283 - memArc;
+
+  // Disk ring
+  var diskColor = pctColor(disk.percent);
+  var diskArc = (disk.percent / 100) * 283;
+  var diskRemain = 283 - diskArc;
+
+  // CPU ring
+  var cpuColor = pctColor(cpu.usage);
+  var cpuArc = (cpu.usage / 100) * 283;
+  var cpuRemain = 283 - cpuArc;
+
+  g.innerHTML =
+    // Memory
+    '<div class="card">' +
+      '<div class="card-header"><span class="card-title">Memory</span><span class="card-value">' + mem.percent + '%</span></div>' +
+      '<div class="card-body"><div class="ring-wrap">' +
+        '<svg class="ring-svg" width="80" height="80" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="8"/><circle cx="50" cy="50" r="45" fill="none" stroke="' + memColor + '" stroke-width="8" stroke-dasharray="' + memArc + ' ' + memRemain + '" stroke-linecap="round" transform="rotate(-90,50,50)" style="transition:stroke-dasharray .8s cubic-bezier(.22,1,.36,1)"/></svg>' +
+        '<div class="ring-info">' +
+          '<div class="ring-pct" style="color:' + memColor + '">' + mem.percent + '%</div>' +
+          '<div class="ring-label">' + formatBytes(mem.used) + ' / ' + formatBytes(mem.total) + '</div>' +
+          '<div class="ring-bar"><div class="ring-bar-fill" style="width:' + mem.percent + '%;background:' + memColor + '"></div></div>' +
+          '<div class="ring-label" style="margin-top:4px">Free: ' + formatBytes(mem.free) + (swap.percent > 0 ? '  ·  Swap: ' + swap.percent + '%' : '') + '</div>' +
+        '</div>' +
+      '</div></div>' +
+    '</div>' +
+
+    // Disk
+    '<div class="card">' +
+      '<div class="card-header"><span class="card-title">Disk</span><span class="card-value">' + disk.percent + '%</span></div>' +
+      '<div class="card-body"><div class="ring-wrap">' +
+        '<svg class="ring-svg" width="80" height="80" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="8"/><circle cx="50" cy="50" r="45" fill="none" stroke="' + diskColor + '" stroke-width="8" stroke-dasharray="' + diskArc + ' ' + diskRemain + '" stroke-linecap="round" transform="rotate(-90,50,50)" style="transition:stroke-dasharray .8s cubic-bezier(.22,1,.36,1)"/></svg>' +
+        '<div class="ring-info">' +
+          '<div class="ring-pct" style="color:' + diskColor + '">' + disk.percent + '%</div>' +
+          '<div class="ring-label">' + formatBytes(disk.used) + ' / ' + formatBytes(disk.total) + '</div>' +
+          '<div class="ring-bar"><div class="ring-bar-fill" style="width:' + disk.percent + '%;background:' + diskColor + '"></div></div>' +
+          '<div class="ring-label" style="margin-top:4px">Free: ' + formatBytes(disk.free) + '</div>' +
+        '</div>' +
+      '</div></div>' +
+    '</div>' +
+
+    // CPU + Load
+    '<div class="card">' +
+      '<div class="card-header"><span class="card-title">CPU</span><span class="card-value">' + cpu.cores + ' cores</span></div>' +
+      '<div class="card-body"><div class="ring-wrap">' +
+        '<svg class="ring-svg" width="80" height="80" viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="8"/><circle cx="50" cy="50" r="45" fill="none" stroke="' + cpuColor + '" stroke-width="8" stroke-dasharray="' + cpuArc + ' ' + cpuRemain + '" stroke-linecap="round" transform="rotate(-90,50,50)" style="transition:stroke-dasharray .8s cubic-bezier(.22,1,.36,1)"/></svg>' +
+        '<div class="ring-info">' +
+          '<div class="ring-pct" style="color:' + cpuColor + '">' + cpu.usage + '%</div>' +
+          '<div class="ring-label">Load Average</div>' +
+          '<div class="load-bar-group">' +
+            '<div class="load-bar" style="height:' + Math.min(load[0]/cpu.cores*100,100) + '%;background:' + pctColor(load[0]/cpu.cores*100) + '"></div>' +
+            '<div class="load-bar" style="height:' + Math.min(load[1]/cpu.cores*100,100) + '%;background:' + pctColor(load[1]/cpu.cores*100) + '"></div>' +
+            '<div class="load-bar" style="height:' + Math.min(load[2]/cpu.cores*100,100) + '%;background:' + pctColor(load[2]/cpu.cores*100) + '"></div>' +
+          '</div>' +
+          '<div class="load-labels"><span>1m ' + load[0].toFixed(2) + '</span><span>5m ' + load[1].toFixed(2) + '</span><span>15m ' + load[2].toFixed(2) + '</span></div>' +
+        '</div>' +
+      '</div></div>' +
+    '</div>' +
+
+    // Processes
+    '<div class="card">' +
+      '<div class="card-header"><span class="card-title">Processes</span></div>' +
+      '<div class="card-body"><div class="proc-list">' +
+        procs.map(function(p){
+          var cls = p.status === 'running' ? 'running' : (p.status === 'stopped' ? 'stopped' : 'unknown');
+          return '<div class="proc-item"><div class="proc-status ' + cls + '"></div><div class="proc-name">' + esc(p.name) + '</div><div class="proc-info">' + (p.status === 'running' ? 'Running' : p.status) + '</div><div class="proc-pid">' + (p.pid || '—') + '</div></div>';
+        }).join('') +
+      '</div></div>' +
+    '</div>' +
+
+    // Network
+    '<div class="card">' +
+      '<div class="card-header"><span class="card-title">Network</span><span class="card-value">' + (d.hostname || '') + '</span></div>' +
+      '<div class="card-body"><div class="net-grid">' +
+        '<div class="net-item"><div class="val" style="color:#30d158">' + formatBytes(net.rx) + '/s</div><div class="lbl">Download</div></div>' +
+        '<div class="net-item"><div class="val" style="color:#ff9f0a">' + formatBytes(net.tx) + '/s</div><div class="lbl">Upload</div></div>' +
+        '<div class="net-item"><div class="val" style="font-size:14px">' + formatBytes(net.rx_total) + '</div><div class="lbl">Total Received</div></div>' +
+        '<div class="net-item"><div class="val" style="font-size:14px">' + formatBytes(net.tx_total) + '</div><div class="lbl">Total Sent</div></div>' +
+      '</div></div>' +
+    '</div>' +
+
+    // Top CPU processes
+    '<div class="card full">' +
+      '<div class="card-header"><span class="card-title">Top Processes by CPU</span></div>' +
+      '<div class="card-body"><table class="top-proc" style="width:100%;border-collapse:collapse">' +
+        '<thead><tr><th>PID</th><th>Process</th><th>CPU%</th><th>MEM%</th><th>RSS</th></tr></thead>' +
+        '<tbody>' +
+          topCpu.map(function(t){
+            return '<tr><td>' + t.pid + '</td><td class="name">' + esc(t.name) + '</td><td>' + t.cpu + '</td><td>' + t.mem + '</td><td>' + t.rss + '</td></tr>';
+          }).join('') +
+        '</tbody></table>' +
+      '</div></div>' +
+    '</div>';
+}
+
+function formatBytes(n) {
+  if (!n || n === 0) return '0 B';
+  var units = ['B','KB','MB','GB','TB'];
+  var i = 0;
+  var size = n;
+  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+  return size.toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+function toast(m, t) {
+  var c = document.getElementById('toastContainer');
+  var e = document.createElement('div');
+  e.className = 'toast ' + (t || '');
+  e.textContent = m;
+  c.appendChild(e);
+  setTimeout(function(){ e.style.opacity='0'; e.style.transition='opacity .3s'; setTimeout(function(){e.remove();},300); }, 3000);
+}
+
+/* ── Init ── */
+async function init() {
+  fetchStatus();
+  fetchTokens();
+  setInterval(fetchStatus, 2000);
+  setInterval(fetchTokens, 30000); // Update tokens every 30 seconds
+}
+
+async function fetchStatus() {
+  try {
+    var data = await api('/api/status');
+    if (data) render(data);
+  } catch(e) {
+    // silent
+  }
+}
+
+async function fetchTokens() {
+  try {
+    var data = await api('/api/tokens');
+    if (data) {
+      document.getElementById('tokenTotal').textContent = formatNumber(data.total_tokens);
+      document.getElementById('tokenInput').textContent = formatNumber(data.total_input);
+      document.getElementById('tokenOutput').textContent = formatNumber(data.total_output);
+      document.getElementById('tokenCalls').textContent = formatNumber(data.api_calls);
+      document.getElementById('tokenToday').textContent = formatNumber(data.today_tokens);
+    }
+  } catch(e) {
+    // silent
+  }
+}
+
+function formatNumber(n) {
+  if (!n || n === 0) return '0';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return n.toString();
+}
+
+init();
+</script>
+</body>
+</html>
